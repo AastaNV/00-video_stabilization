@@ -7,6 +7,14 @@
 
 ### Build
 ```
+$ cd /home/nvidia/
+$ mkdir opencv4.3.0
+$ wget https://raw.githubusercontent.com/AastaNV/JEP/master/script/install_opencv4.3.0_Jetson.sh
+$ sudo chmod +x install_opencv4.3.0_Jetson.sh
+$ ./install_opencv4.3.0_Jetson.sh opencv4.3.0
+```
+
+```
 $ git clone https://github.com/AastaNV/00-video_stabilization.git
 $ cd 00-video_stabilization
 $ cmake .

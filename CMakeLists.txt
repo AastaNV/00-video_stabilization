@@ -30,7 +30,7 @@ project(vpi_sample_stabilization)
 
 find_package(CUDA REQUIRED)
 find_package(vpi 0.3.0 REQUIRED)
-find_package(OpenCV REQUIRED)
+find_package(OpenCV 4.3.0 EXACT REQUIRED PATHS /home/nvidia/opencv4.3.0/opencv-4.3.0/release/)
 
 set(
 	CUDA_NVCC_FLAGS
@@ -38,7 +38,10 @@ set(
 	-gencode arch=compute_72,code=sm_72
 )
 
+cuda_add_library(cudaUtility SHARED cudaUtility.cu cudaUtility.cuh)
 cuda_add_executable(${PROJECT_NAME} main.cpp)
+
+include_directories(./)
 include_directories(/usr/local/cuda-10.2/targets/aarch64-linux/include)
-target_link_libraries(${PROJECT_NAME} vpi opencv_core)
-target_link_libraries(${PROJECT_NAME} opencv_highgui opencv_videoio)
+target_link_libraries(${PROJECT_NAME} vpi cudaUtility)
+target_link_libraries(${PROJECT_NAME} opencv_core opencv_highgui opencv_videoio)
