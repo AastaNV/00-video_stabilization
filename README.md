@@ -2,11 +2,12 @@
 
 ### Environment
 * Jetson Xavier or XavierNX
-* JetPack 4.4 GA
+* JetPack 4.4 Product Release (GA)
 * VPI-0.3
 
 ### Build
-```$ git clone https://github.com/AastaNV/00-video_stabilization.git
+```
+$ git clone https://github.com/AastaNV/00-video_stabilization.git
 $ cd 00-video_stabilization
 $ cmake .
 $ make
@@ -47,4 +48,3 @@ $ ./vpi_sample_stabilization
 -> [ImageFormatConverter](http://) -> (VPI NV12) 
 -> [PerspectiveImageWarp](http://)  -> (VPI NV12) 
 -> [ImageFormatConverter](http://) -> (OpenCV BGR)
-

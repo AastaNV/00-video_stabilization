@@ -28,6 +28,7 @@
 
 #include <iostream>
 #include <algorithm>
+#include <cuda_runtime.h>
 
 #include <opencv2/core/version.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -42,6 +43,8 @@
 #include <vpi/algo/ImageFormatConverter.h>
 #include <vpi/algo/PerspectiveImageWarp.h>
 
+#define ONE_MBYTE (1024*1024)
+
 #define CHECK_STATUS(STMT)                                                    \
     do                                                                        \
     {                                                                         \
@@ -53,6 +56,39 @@
         }                                                                     \
     } while (0);
 
+class myClock
+{
+public:
+    inline void tic() { clock_gettime(CLOCK_REALTIME, &t1); };
+
+    void toc(std::string prefix)
+    {
+        clock_gettime(CLOCK_REALTIME, &t2);
+        double t_us = ((double)(t2.tv_sec - t1.tv_sec)) * 1000000.0 + ((double)(t2.tv_nsec - t1.tv_nsec) / 1000.0);
+        std::cout << prefix << t_us;
+    }
+
+private:
+    timespec t1, t2;
+};
+
+static void printMemInfo()
+{
+    size_t free_byte ;
+    size_t total_byte ;
+    cudaError_t cuda_status = cudaMemGetInfo( &free_byte, &total_byte ) ;
+
+    if ( cudaSuccess != cuda_status ){
+        printf("Error: cudaMemGetInfo fails, %s\n", cudaGetErrorString(cuda_status));
+        exit(1);
+    }
+
+    double free_db = (double)free_byte ;
+    double total_db = (double)total_byte ;
+    double used_db = total_db - free_db ;
+
+    printf(" GPU memory usage: used = %.2f MB, free = %.2f MB, total = %.2f MB\n", used_db/ONE_MBYTE, free_db/ONE_MBYTE, total_db/ONE_MBYTE);
+}
 
 static void MatrixMultiply(VPIPerspectiveTransform &r, const VPIPerspectiveTransform &a,
                            const VPIPerspectiveTransform &b)
@@ -121,32 +157,9 @@ int main(int argc, char *argv[])
     CHECK_STATUS(vpiArrayCreate(128, VPI_ARRAY_TYPE_HOMOGRAPHY_TRANSFORM_2D, 0, &outputEstimList));   
 
 
-    for( size_t frame_num=0; frame_num<300; frame_num++ )
+    for( size_t frame_num=0; ; frame_num++ )
     {
-        // for first image
-        if( ori_t0.empty() )
-        {   
-            if( !video.read(ori_t0) )
-            {
-                std::cerr << "[ERROR] Can't read video frame" << std::endl;
-                exit(0);
-            } 
-
-            cvtColor(ori_t0, img_t0, cv::COLOR_BGR2GRAY);
-            img_t0.convertTo(img_t0, CV_16SC1);
-
-            VPIImageData imgData;
-            memset(&imgData, 0, sizeof(imgData));
-            imgData.type                = VPI_IMAGE_TYPE_S16;
-            imgData.numPlanes           = 1;
-            imgData.planes[0].width     = img_t0.cols;
-            imgData.planes[0].height    = img_t0.rows;
-            imgData.planes[0].rowStride = img_t0.step[0];
-            imgData.planes[0].data      = img_t0.data;
-
-            CHECK_STATUS(vpiImageWrapHostMem(&imgData, 0, &image_t0));
-            continue;
-        }
+        myClock clock;
 
 
         // read input
@@ -173,8 +186,14 @@ int main(int argc, char *argv[])
             CHECK_STATUS(vpiImageWrapHostMem(&imgData, 0, &image_t1));
         }
 
+        if( frame_num == 0 ) {
+            std::swap(image_t1, image_t0);
+            continue;
+        }
+
 
         // harris
+        clock.tic();
         {
             VPIHarrisKeypointDetectorParams params;
             params.gradientSize   = 5;
@@ -186,9 +205,11 @@ int main(int argc, char *argv[])
             CHECK_STATUS(vpiSubmitHarrisKeypointDetector(harris, image_t0, keypoints, scores, &params));
             CHECK_STATUS(vpiStreamSync(stream));
         }
+        clock.toc(">> Harris time: ");
 
 
         // corner -> bbox
+        clock.tic();
         VPIArrayData outKeypointsData;
         CHECK_STATUS(vpiArrayLock(keypoints, VPI_LOCK_READ, &outKeypointsData));
         VPIKeypoint *kpts = (VPIKeypoint *)outKeypointsData.data;
@@ -232,9 +253,11 @@ int main(int argc, char *argv[])
         data.type = VPI_ARRAY_TYPE_HOMOGRAPHY_TRANSFORM_2D;
         data.data = &preds[0];
         CHECK_STATUS(vpiArrayWrapHostMem(&data, 0, &inputPredList));
+        clock.toc(", CPU wraper time: ");
 
 
         // KLT
+        clock.tic();
         {
             VPIKLTBoundingBoxTrackerParams params = {};
             params.numberOfIterationsScaling      = 20;
@@ -249,9 +272,11 @@ int main(int argc, char *argv[])
                                                              image_t1,outputBoxList, outputEstimList, &params));
             CHECK_STATUS(vpiStreamSync(stream));
         }
+        clock.toc(", KLT time: ");
 
 
         // Calculate global motion
+        clock.tic();
         VPIPerspectiveTransform transform;
         {
             VPIArrayData updatedBBoxData;
@@ -297,7 +322,9 @@ int main(int argc, char *argv[])
             CHECK_STATUS(vpiArrayUnlock(outputBoxList));
             CHECK_STATUS(vpiArrayUnlock(outputEstimList));
         }
+
         CHECK_STATUS(vpiArrayUnlock(keypoints));
+        clock.toc(", motion estimation time: ");
 
 
         // warp
@@ -312,28 +339,41 @@ int main(int argc, char *argv[])
             imgData.planes[0].data      = ori_t1.data;
 
             CHECK_STATUS(vpiImageWrapHostMem(&imgData, 0, &warpBGR));
+
+            clock.tic();
             CHECK_STATUS(vpiSubmitImageFormatConverter(stream, warpBGR, warpIn, VPI_CONVERSION_CAST, 1, 0));
             CHECK_STATUS(vpiStreamSync(stream));
 
             CHECK_STATUS(vpiSubmitPerspectiveImageWarp(warp, warpIn, transform, warpOut, VPI_INTERP_LINEAR,
-                                                   VPI_BOUNDARY_COND_ZERO, 0));
+                                                       VPI_BOUNDARY_COND_ZERO, 0));
             CHECK_STATUS(vpiStreamSync(pva));
-	
+
             CHECK_STATUS(vpiSubmitImageFormatConverter(stream, warpOut, warpBGR, VPI_CONVERSION_CAST, 1, 0));
             CHECK_STATUS(vpiStreamSync(stream));
+            clock.toc(", warping time: ");
 
             CHECK_STATUS(vpiImageLock(warpBGR, VPI_LOCK_READ, &imgData));
             out_t1 = cv::Mat(imgData.planes[0].height, imgData.planes[0].width, CV_8UC3, imgData.planes[0].data, imgData.planes[0].rowStride);
-        }
+            CHECK_STATUS(vpiImageLock(warpBGR, VPI_LOCK_READ, &imgData));
+       }
 
+        /*
         cv::Mat display;
         cv::hconcat(ori_t1, out_t1, display);
         cv::imshow("orignal | warped", display);
         cv::waitKey(10);
+        */
+
         std::swap(img_t0, img_t1);
         std::swap(ori_t0, ori_t1);
         std::swap(image_t0, image_t1);
-        CHECK_STATUS(vpiImageUnlock(warpBGR));
+
+        vpiArrayDestroy(inputBoxList);
+        vpiArrayDestroy(inputPredList);
+        vpiImageDestroy(warpBGR);
+        vpiImageDestroy(image_t1);
+
+        printMemInfo();
     }
 
     // Clean up

@@ -28,9 +28,17 @@ cmake_minimum_required(VERSION 3.5)
 
 project(vpi_sample_stabilization)
 
+find_package(CUDA REQUIRED)
 find_package(vpi 0.3.0 REQUIRED)
 find_package(OpenCV REQUIRED)
 
-add_executable(${PROJECT_NAME} main.cpp)
+set(
+	CUDA_NVCC_FLAGS
+	-O3
+	-gencode arch=compute_72,code=sm_72
+)
+
+cuda_add_executable(${PROJECT_NAME} main.cpp)
+include_directories(/usr/local/cuda-10.2/targets/aarch64-linux/include)
 target_link_libraries(${PROJECT_NAME} vpi opencv_core)
 target_link_libraries(${PROJECT_NAME} opencv_highgui opencv_videoio)
