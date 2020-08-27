@@ -34,7 +34,7 @@ $ ./vpi_sample_stabilization
         - [TODO] User should add foreground removal and IIR filter matrix on their own
 - Matrix need to apply on the center of the image. Transform will look like this:
 ```
-         | 1  0  2/w |     | 1  1  mx |     | 1  0  -2/w |
+         | 1  0  2/w |     | 1  0  mx |     | 1  0  -2/w |
      T = | 0  1  2/h |  *  | 0  1  my |  *  | 0  1  -2/h |
          | 0  0   1  |     | 0  0   1 |     | 0  0    1  |
 ```
