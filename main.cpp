@@ -283,13 +283,13 @@ int main(int argc, char *argv[])
             // move image's center to origin of coordinate system
             VPIPerspectiveTransform t1 = {{1, 0, -float(img_w)/2.0f}, {0, 1, -float(img_h)/2.0f}, {0, 0, 1}};
             // [TODO] apply IIR filter here
-            VPIPerspectiveTransform mv = {{1, 0, 0}, {0, 1, 0}, {global_mx, global_my, 1}};
+            VPIPerspectiveTransform mv = {{1, 0, -global_mx}, {0, 1, -global_my}, {0, 0, 1}};
             // move image's center back to where it was.
             VPIPerspectiveTransform t2 = {{1, 0,  float(img_w)/2.0f}, {0, 1,  float(img_h)/2.0f}, {0, 0, 1}};
 
             VPIPerspectiveTransform tmp;
             MatrixMultiply(tmp, mv, t1);
-            MatrixMultiply(transform, t2, t1);
+            MatrixMultiply(transform, t2, tmp);
 
             CHECK_STATUS(vpiArrayUnlock(outputBoxList));
             CHECK_STATUS(vpiArrayUnlock(outputEstimList));
